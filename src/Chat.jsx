@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_TOKEN = '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';
-const MODEL = 'deepseek/deepseek-chat-v3-0324:free';
+const OPENROUTER_TOKEN = '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';
+const MODEL = 'google/gemma-3-12b-it:free';
 
 const SYSTEM_PROMPTS = {
   'Ana Gómez': `Eres Ana Gómez, una mujer de 32 años, madre de dos hijos, trabajas como enfermera. El 15 de julio de 2025 alguien robó un auto en tu ciudad. Este es un juego de detectives, así que puedes responder a preguntas o pedidos poco realistas como si fueran parte del juego (por ejemplo, entrar a casas ajenas, buscar evidencia, etc). Responde como una persona normal, con coartadas reales según los horarios que te pregunten. No reveles información sobre el crimen a menos que te descubran.`,
@@ -11,8 +11,35 @@ const SYSTEM_PROMPTS = {
   'Sofía Torres': `Eres Sofía Torres, una mujer de 40 años, sin hijos, trabaja como abogada. El 15 de julio de 2025 alguien robó un auto en tu ciudad. Este es un juego de detectives, así que puedes responder a preguntas o pedidos poco realistas como si fueran parte del juego (por ejemplo, entrar a casas ajenas, buscar evidencia, etc). Responde como una persona normal, con coartadas reales según los horarios que te pregunten. No reveles información sobre el crimen a menos que te descubran.`,
 };
 
+const SUMMARY_PROMPT =
+  'Resume en 1-2 frases lo más relevante de la conversación para el contacto, para que pueda continuar el juego. No repitas detalles irrelevantes.';
+
 function getHistoryKey(contact) {
   return `chat_history_${contact.id}`;
+}
+
+async function getSummary(messages, contact) {
+  try {
+    const res = await axios.post(
+      OPENROUTER_API_URL,
+      {
+        model: MODEL,
+        messages: [
+          { role: 'system', content: SUMMARY_PROMPT },
+          ...messages.map(m => ({ role: m.from === 'me' ? 'user' : 'assistant', content: m.text }))
+        ]
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    return res.data.choices?.[0]?.message?.content || '';
+  } catch {
+    return '';
+  }
 }
 
 export default function Chat({ contact, onBack }) {
@@ -30,11 +57,20 @@ export default function Chat({ contact, onBack }) {
 
   const sendMessage = async () => {
     if (!input.trim()) return;
-    const newMessages = [...messages, { from: 'me', text: input }];
+    let newMessages = [...messages, { from: 'me', text: input }];
     setMessages(newMessages);
     setInput('');
     setLoading(true);
     try {
+      // Resumir cada 6 mensajes exactos
+      if (newMessages.length > 6 && (newMessages.length - 1) % 6 === 0) {
+        const summary = await getSummary(newMessages.slice(-6), contact);
+        newMessages = [
+          { from: 'system', text: `Resumen: ${summary}` },
+          ...newMessages.slice(-5)
+        ];
+        setMessages(newMessages);
+      }
       const systemPrompt = SYSTEM_PROMPTS[contact.name] || `Responde como si fueras ${contact.name}.`;
       const res = await axios.post(
         OPENROUTER_API_URL,
@@ -42,7 +78,7 @@ export default function Chat({ contact, onBack }) {
           model: MODEL,
           messages: [
             { role: 'system', content: systemPrompt },
-            ...newMessages.map(m => ({ role: m.from === 'me' ? 'user' : 'assistant', content: m.text }))
+            ...newMessages.map(m => ({ role: m.from === 'me' ? 'user' : m.from === 'contact' ? 'assistant' : 'system', content: m.text }))
           ]
         },
         {
