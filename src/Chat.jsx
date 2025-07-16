@@ -18,6 +18,23 @@ function getHistoryKey(contact) {
   return `chat_history_${contact.id}`;
 }
 
+function saveChatHistory(contact, messages) {
+  try {
+    localStorage.setItem(getHistoryKey(contact), JSON.stringify(messages));
+  } catch (e) {
+    // Si localStorage falla, puedes mostrar un mensaje o intentar otra estrategia
+  }
+}
+
+function loadChatHistory(contact) {
+  try {
+    const saved = localStorage.getItem(getHistoryKey(contact));
+    return saved ? JSON.parse(saved) : [{ from: 'me', text: 'Hola ' + contact.name + '!' }];
+  } catch (e) {
+    return [{ from: 'me', text: 'Hola ' + contact.name + '!' }];
+  }
+}
+
 async function getSummary(messages, contact) {
   try {
     const res = await axios.post(
@@ -42,17 +59,49 @@ async function getSummary(messages, contact) {
   }
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchOpenRouterReply(newMessages, contact, systemPrompt, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const res = await axios.post(
+        OPENROUTER_API_URL,
+        {
+          model: MODEL,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            ...newMessages.map(m => ({ role: m.from === 'me' ? 'user' : m.from === 'contact' ? 'assistant' : 'system', content: m.text }))
+          ]
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${OPENROUTER_TOKEN}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      return res.data.choices?.[0]?.message?.content || 'Sin respuesta';
+    } catch (err) {
+      if (attempt < retries) {
+        const wait = Math.floor(Math.random() * 2000) + 1000;
+        await sleep(wait);
+      } else {
+        return null;
+      }
+    }
+  }
+}
+
 export default function Chat({ contact, onBack }) {
-  const [messages, setMessages] = useState(() => {
-    const saved = localStorage.getItem(getHistoryKey(contact));
-    return saved ? JSON.parse(saved) : [{ from: 'me', text: 'Hola ' + contact.name + '!' }];
-  });
+  const [messages, setMessages] = useState(() => loadChatHistory(contact));
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const chatEndRef = useRef(null);
 
   useEffect(() => {
-    localStorage.setItem(getHistoryKey(contact), JSON.stringify(messages));
+    saveChatHistory(contact, messages);
   }, [messages, contact]);
 
   const sendMessage = async () => {
@@ -72,24 +121,8 @@ export default function Chat({ contact, onBack }) {
         setMessages(newMessages);
       }
       const systemPrompt = SYSTEM_PROMPTS[contact.name] || `Responde como si fueras ${contact.name}.`;
-      const res = await axios.post(
-        OPENROUTER_API_URL,
-        {
-          model: MODEL,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            ...newMessages.map(m => ({ role: m.from === 'me' ? 'user' : m.from === 'contact' ? 'assistant' : 'system', content: m.text }))
-          ]
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${OPENROUTER_TOKEN}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-      const reply = res.data.choices?.[0]?.message?.content || 'Sin respuesta';
-      setMessages(msgs => [...msgs, { from: 'contact', text: reply }]);
+      const reply = await fetchOpenRouterReply(newMessages, contact, systemPrompt, 3);
+      setMessages(msgs => [...msgs, { from: 'contact', text: reply || 'Error al obtener respuesta.' }]);
     } catch (err) {
       setMessages(msgs => [...msgs, { from: 'contact', text: 'Error al obtener respuesta.' }]);
     }
