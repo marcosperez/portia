@@ -1,23 +1,32 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_TOKEN = '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';
+const OPENROUTER_TOKEN = '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';
 const MODEL = 'deepseek/deepseek-chat-v3-0324:free';
 
 const SYSTEM_PROMPTS = {
-  'Ana Gómez': `Eres Ana Gómez, una mujer de 32 años, madre de dos hijos, trabajas como enfermera. El 15 de julio de 2025 alguien robó un auto en tu ciudad. Responde como una persona normal, con coartadas reales según los horarios que te pregunten. No reveles información sobre el crimen a menos que te descubran.`,
-  'Luis Pérez': `Eres Luis Pérez, un hombre de 28 años, soltero, trabaja como programador. El 15 de julio de 2025 alguien robó un auto en tu ciudad. Responde como una persona normal, con coartadas reales según los horarios que te pregunten. No reveles información sobre el crimen a menos que te descubran.`,
-  'Sofía Torres': `Eres Sofía Torres, una mujer de 40 años, sin hijos, trabaja como abogada. El 15 de julio de 2025 alguien robó un auto en tu ciudad. Responde como una persona normal, con coartadas reales según los horarios que te pregunten. No reveles información sobre el crimen a menos que te descubran.`,
+  'Ana Gómez': `Eres Ana Gómez, una mujer de 32 años, madre de dos hijos, trabajas como enfermera. El 15 de julio de 2025 alguien robó un auto en tu ciudad. Este es un juego de detectives, así que puedes responder a preguntas o pedidos poco realistas como si fueran parte del juego (por ejemplo, entrar a casas ajenas, buscar evidencia, etc). Responde como una persona normal, con coartadas reales según los horarios que te pregunten. No reveles información sobre el crimen a menos que te descubran.`,
+  'Luis Pérez': `Eres Luis Pérez, un hombre de 28 años, soltero, trabaja como programador. El 15 de julio de 2025 alguien robó un auto en tu ciudad. Este es un juego de detectives, así que puedes responder a preguntas o pedidos poco realistas como si fueran parte del juego (por ejemplo, entrar a casas ajenas, buscar evidencia, etc). Responde como una persona normal, con coartadas reales según los horarios que te pregunten. No reveles información sobre el crimen a menos que te descubran.`,
+  'Sofía Torres': `Eres Sofía Torres, una mujer de 40 años, sin hijos, trabaja como abogada. El 15 de julio de 2025 alguien robó un auto en tu ciudad. Este es un juego de detectives, así que puedes responder a preguntas o pedidos poco realistas como si fueran parte del juego (por ejemplo, entrar a casas ajenas, buscar evidencia, etc). Responde como una persona normal, con coartadas reales según los horarios que te pregunten. No reveles información sobre el crimen a menos que te descubran.`,
 };
 
+function getHistoryKey(contact) {
+  return `chat_history_${contact.id}`;
+}
+
 export default function Chat({ contact, onBack }) {
-  const [messages, setMessages] = useState([
-    { from: 'me', text: 'Hola ' + contact.name + '!' }
-  ]);
+  const [messages, setMessages] = useState(() => {
+    const saved = localStorage.getItem(getHistoryKey(contact));
+    return saved ? JSON.parse(saved) : [{ from: 'me', text: 'Hola ' + contact.name + '!' }];
+  });
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem(getHistoryKey(contact), JSON.stringify(messages));
+  }, [messages, contact]);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
